@@ -1,4 +1,5 @@
 const express = require("express");
+const SHA256 = require("crypto-js/sha256");
 const secp = require("@noble/secp256k1");
 const app = express();
 const cors = require("cors");
@@ -16,44 +17,56 @@ const originalPrivateKeys = {
   three: secp.utils.randomPrivateKey(),
 };
 
-const originalPublicKeys = {
-  one: secp.getPublicKey(originalPrivateKeys.one),
-  two: secp.getPublicKey(originalPrivateKeys.two),
-  three: secp.getPublicKey(originalPrivateKeys.three),
+const originalKeys = {
+  one: {
+    privateKey: originalPrivateKeys.one,
+    publicKey: secp.getPublicKey(originalPrivateKeys.one),
+  },
+  two: {
+    privateKey: originalPrivateKeys.two,
+    publicKey: secp.getPublicKey(originalPrivateKeys.two),
+  },
+  three: {
+    privateKey: originalPrivateKeys.three,
+    publicKey: secp.getPublicKey(originalPrivateKeys.three),
+  },
 };
 
-const keys = {
+const reformatedKeys = {
   one: {
     privateKey: convertToPrivateKeyFormat(originalPrivateKeys.one),
-    publicKey: convertToPublicKeyFormat(originalPublicKeys.one),
+    publicKey: convertToPublicKeyFormat(originalKeys.one.publicKey),
   },
   two: {
     privateKey: convertToPrivateKeyFormat(originalPrivateKeys.two),
-    publicKey: convertToPublicKeyFormat(originalPublicKeys.two),
+    publicKey: convertToPublicKeyFormat(originalKeys.two.publicKey),
   },
   three: {
     privateKey: convertToPrivateKeyFormat(originalPrivateKeys.three),
-    publicKey: convertToPublicKeyFormat(originalPublicKeys.three),
+    publicKey: convertToPublicKeyFormat(originalKeys.three.publicKey),
   },
 };
 
 const accounts = {
   one: {
-    publicKey: keys.one.publicKey,
-    privateKey: keys.one.privateKey,
+    publicKey: reformatedKeys.one.publicKey,
+    privateKey: reformatedKeys.one.privateKey,
     balance: 100,
   },
   two: {
-    publicKey: keys.two.publicKey,
-    privateKey: keys.two.privateKey,
+    publicKey: reformatedKeys.two.publicKey,
+    privateKey: reformatedKeys.two.privateKey,
     balance: 50,
   },
   three: {
-    publicKey: keys.three.publicKey,
-    privateKey: keys.three.privateKey,
+    publicKey: reformatedKeys.three.publicKey,
+    privateKey: reformatedKeys.three.privateKey,
     balance: 75,
   },
 };
+
+const newKeys = Object.keys(reformatedKeys);
+const newValues = Object.values(reformatedKeys);
 
 function convertToPublicKeyFormat(publicKey) {
   publicKey = Buffer.from(publicKey).toString("hex");
@@ -78,10 +91,32 @@ app.get("/balance/:address", (req, res) => {
 });
 
 app.post("/send", (req, res) => {
-  const { sender, recipient, amount } = req.body;
-  balances[sender] -= amount;
-  balances[recipient] = (balances[recipient] || 0) + +amount;
-  res.send({ balance: balances[sender] });
+  const { transaction, publicKey, isValid } = req.body;
+  let thisAccount;
+  let recipientAccount;
+  const newPublicKey = "0x" + publicKey.slice(publicKey.length - 40);
+
+  if (isValid) {
+    for (let i = 0; i < Object.keys(accounts).length; i++) {
+      if (newPublicKey === newValues[i].publicKey) {
+        thisAccount = newKeys[i];
+      }
+      if (transaction.recipient === newValues[i].publicKey) {
+        recipientAccount = newKeys[i];
+      }
+    }
+    if (!thisAccount || !recipientAccount) {
+      throw "invalid key";
+    }
+    if (thisAccount && recipientAccount) {
+      accounts[thisAccount].balance -= transaction.amount;
+      accounts[recipientAccount].balance =
+        (accounts[recipientAccount].balance || 0) + +transaction.amount;
+    }
+  } else {
+    res.sendStatus(400);
+  }
+  console.log(accounts);
 });
 
 app.listen(port, () => {
